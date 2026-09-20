@@ -55,6 +55,11 @@ td input{background:transparent;border:1px solid transparent;color:var(--txt);te
 td input:hover{border-color:var(--line)}
 td input:focus{border-color:var(--accent);outline:none;background:#0f1e33}
 td input.name{text-align:left;width:220px;font-weight:500}
+.mcell{padding:4px 6px;text-align:right;vertical-align:top}
+.mcell input.mval{background:transparent;border:1px solid transparent;color:var(--txt);text-align:right;width:100px;padding:4px 4px;border-radius:6px;font-size:13px;font-family:inherit;display:block}
+.mcell input.mval:hover{border-color:var(--line)}
+.mcell input.mval:focus{border-color:var(--accent);outline:none;background:#0f1e33}
+.mcell select.msel{display:block;width:100%;font-size:10px;padding:2px 3px;margin-top:3px}
 td select{background:#0f1e33;color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:3px 4px;font-size:11px}
 .btn{background:var(--accent);color:#04293a;border:none;padding:9px 16px;border-radius:9px;font-weight:700;cursor:pointer;font-size:13px;transition:.15s}
 .btn:hover{filter:brightness(1.08)}
@@ -236,6 +241,7 @@ footer{text-align:center;padding:20px;color:var(--muted);font-size:12px}
     <button class="btn ghost" id="addVar">+ Gasto variable</button>
     <button class="btn ghost" id="addDebt">+ Deuda</button>
     <div class="spacer"></div>
+    <div class="field" style="flex:0 0 auto;min-width:200px"><label style="font-size:11px;color:var(--muted)">Ver en la tabla</label><select id="flowMonthSel" onchange="setFlowView(this.value)"></select></div>
     <span class="hint">Edita cualquier celda. Los totales se recalculan solos y se guardan automáticamente.</span>
   </div>
   <div class="tbl-wrap">
@@ -353,14 +359,25 @@ footer{text-align:center;padding:20px;color:var(--muted);font-size:12px}
   </div>
   <div class="card" style="margin-top:16px">
     <h3>🔗 Vincular con base de datos o tabla de Excel</h3>
-    <p class="hint" style="margin:10px 0">Pega aquí el enlace a tu fuente de datos (Google Sheets publicado como CSV, un archivo Excel/CSV público, o el endpoint de tu base de datos). El enlace queda guardado y puedes abrirlo o sincronizar la información del año activo con un clic.</p>
+    <p class="hint" style="margin:10px 0">Aquí puedes conectar tu información con la nube en dos direcciones: <b>traer</b> datos desde un enlace (lectura) y <b>enviar</b> toda tu información a un enlace (escritura), para no saturar el almacenamiento local del navegador.</p>
+
+    <h4 style="margin:14px 0 6px;color:var(--accent)">1) Enlace para LEER datos (Excel/CSV/Google Sheets)</h4>
     <div class="field"><label>Enlace de la fuente de datos</label><input id="cfgDataUrl" type="url" placeholder="https://docs.google.com/.../pub?output=csv"></div>
     <div class="mini-add" style="margin-top:12px">
       <button class="btn green" id="saveDataUrl">💾 Guardar enlace</button>
       <button class="btn" id="openDataUrl">↗️ Abrir enlace</button>
-      <button class="btn ghost" id="syncDataUrl">🔄 Sincronizar desde el enlace</button>
+      <button class="btn ghost" id="syncDataUrl">🔄 Traer datos del enlace</button>
     </div>
-    <p class="hint" style="margin-top:10px">La sincronización reemplaza los datos del año activo con la tabla del enlace (mismo formato que el Excel exportado). Requiere que el enlace sea público; si el sitio bloquea el acceso (CORS), descarga el archivo y usa “Importar Excel”.</p>
+    <p class="hint" style="margin-top:10px">Trae la información del enlace. Si usas tu Apps Script y añades <b>?format=json</b> al final (…/exec?format=json), se restaura <b>todo</b> el respaldo: todos los años con la frecuencia y la cuenta de cada mes. Si el enlace devuelve una tabla (CSV/Excel o …/exec normal), se cargan los montos del año activo. El enlace debe ser público; si el sitio bloquea el acceso (CORS), descarga el archivo y usa “Importar Excel”.</p>
+
+    <h4 style="margin:18px 0 6px;color:var(--accent)">2) Enlace para ENVIAR toda la información (guardar en la nube)</h4>
+    <div class="field"><label>Endpoint que recibe los datos (webhook)</label><input id="cfgPushUrl" type="url" placeholder="https://script.google.com/macros/s/.../exec"></div>
+    <div class="mini-add" style="margin-top:12px">
+      <button class="btn green" id="savePushUrl">💾 Guardar endpoint</button>
+      <button class="btn" id="pushDataUrl">☁️ Enviar todo ahora</button>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--txt)"><input type="checkbox" id="cfgAutoPush" style="width:auto"> Enviar automáticamente al editar</label>
+    </div>
+    <p class="hint" style="margin-top:10px">Envía <b>toda</b> la información (todos los años, cada mes, frecuencia, cuenta, deudas y configuración) en formato JSON al endpoint indicado, conservando cada espacio. Un enlace normal de Excel/Google Sheets <b>no</b> puede recibir datos: necesitas un endpoint que acepte POST, por ejemplo una Google Apps Script Web App conectada a tu hoja. Así la información vive en la nube y el navegador no se satura.</p>
   </div>
 </section>
 </main>
@@ -371,9 +388,10 @@ const MONTHS=['ENERO','FEBRERO','MARZO','ABRIL','MAYO','JUNIO','JULIO','AGOSTO',
 const DEFAULT_ACCOUNTS=['BANCOLOMBIA','NEQUI','BANCO CS','EFECTIVO'];
 function ACCS(){return (data&&data.meta&&data.meta.accounts&&data.meta.accounts.length)?data.meta.accounts:DEFAULT_ACCOUNTS;}
 const z=()=>Array(12).fill(0);
-function row(name,account,jan,freq){const v=z();if(jan!=null)v[0]=jan;return{name,account:account||'BANCOLOMBIA',freq:freq||'Q1',vals:v};}
+function ensRowArr(r,k){const fb=(k==='income'?'AMBAS':(r.freq||'Q1'));if(!Array.isArray(r.freqs))r.freqs=[];if(!Array.isArray(r.accts))r.accts=[];for(let m=0;m<12;m++){if(r.freqs[m]==null)r.freqs[m]=r.freq||fb;if(r.accts[m]==null)r.accts[m]=r.account||'BANCOLOMBIA';}}
+function row(name,account,jan,freq){const v=z();if(jan!=null)v[0]=jan;const ac=account||'BANCOLOMBIA';const fq=freq||'Q1';return{name,account:ac,freq:fq,vals:v,freqs:Array(12).fill(fq),accts:Array(12).fill(ac)};}
 function defaultData(){return{
- meta:{savingGoal:0.15,emergencyGoal:0.05,expRatioGoal:0.90,dtiGoal:0.30,alertRatio:0.85,monthCap:0,debtCap:0,currency:'$',locale:'es-CO',dataUrl:'',accounts:DEFAULT_ACCOUNTS.slice()},
+ meta:{savingGoal:0.15,emergencyGoal:0.05,expRatioGoal:0.90,dtiGoal:0.30,alertRatio:0.85,monthCap:0,debtCap:0,currency:'$',locale:'es-CO',dataUrl:'',pushUrl:'',autoPush:false,accounts:DEFAULT_ACCOUNTS.slice()},
  income:[row('Salario','BANCOLOMBIA',2000000,'AMBAS'),row('Ingresos adicionales','BANCOLOMBIA',0,'AMBAS'),row('Pensiones','BANCOLOMBIA',0,'AMBAS'),row('Arriendos','BANCOLOMBIA',0,'Q1'),row('Otros','BANCOLOMBIA',0,'Q1')],
  fixed:[row('Ahorro','BANCOLOMBIA',240000),row('Fondo de emergencia','BANCOLOMBIA',100000),row('Arriendo/Hipoteca','BANCOLOMBIA',0),row('Alimentos/Mercado','BANCOLOMBIA',200000),row('Servicios públicos','BANCOLOMBIA',60000),row('Transporte/Gasolina','BANCOLOMBIA',150000),row('Celular','BANCOLOMBIA',34000),row('Seguros','BANCOLOMBIA',0),row('Mensualidad gym','BANCOLOMBIA',85000),row('Mensualidad latino','BANCOLOMBIA',134000),row('Ortodoncia revisión','BANCOLOMBIA',100000)],
  variable:[row('Viajes','EFECTIVO',0),row('Ropa','EFECTIVO',0),row('Regalos','EFECTIVO',0),row('Salidas (cine, cenas, fiestas)','EFECTIVO',0),row('Otros','EFECTIVO',0)],
@@ -384,8 +402,8 @@ let data;
 const KEY='flujoCajaJDMD';
 const BASE_YEAR=2026;
 function defaultYear(){const d=defaultData();return{income:d.income,fixed:d.fixed,variable:d.variable,debts:d.debts};}
-function cloneZero(r){return{name:r.name,account:r.account,freq:r.freq,vals:z()};}
-function normRows(o){['income','fixed','variable','debts'].forEach(k=>{if(!Array.isArray(o[k]))o[k]=[];o[k].forEach(r=>{if(!r.freq)r.freq=(k==='income'?'AMBAS':'Q1');if(!Array.isArray(r.vals))r.vals=z();while(r.vals.length<12)r.vals.push(0);});});}
+function cloneZero(r){return{name:r.name,account:r.account,freq:r.freq,vals:z(),freqs:(Array.isArray(r.freqs)?r.freqs.slice():Array(12).fill(r.freq||'Q1')),accts:(Array.isArray(r.accts)?r.accts.slice():Array(12).fill(r.account||'BANCOLOMBIA'))};}
+function normRows(o){['income','fixed','variable','debts'].forEach(k=>{if(!Array.isArray(o[k]))o[k]=[];o[k].forEach(r=>{if(!r.freq)r.freq=(k==='income'?'AMBAS':'Q1');if(!Array.isArray(r.vals))r.vals=z();while(r.vals.length<12)r.vals.push(0);ensRowArr(r,k);});});}
 function activateYear(y){y=String(y);if(!data.store[y])data.store[y]=defaultYear();data.currentYear=y;data.income=data.store[y].income;data.fixed=data.store[y].fixed;data.variable=data.store[y].variable;data.debts=data.store[y].debts;}
 function normalizeData(){
  const d=defaultData().meta;if(!data.meta)data.meta={};for(const k in d){if(data.meta[k]===undefined)data.meta[k]=d[k];}
@@ -404,7 +422,7 @@ function normalizeData(){
 }
 function load(){try{const s=localStorage.getItem(KEY);if(s){data=JSON.parse(s);}else{data=defaultData();}}catch(e){data=defaultData();}
  normalizeData();}
-function save(){try{localStorage.setItem(KEY,JSON.stringify(data));}catch(e){}}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(data));}catch(e){}schedulePush();}
 function yearsList(){return Object.keys(data.store).sort();}
 function renderYearSel(){const s=document.getElementById('selYear');if(!s)return;s.innerHTML=yearsList().map(y=>'<option value="'+y+'"'+(String(y)===String(data.currentYear)?' selected':'')+'>'+y+'</option>').join('');}
 function switchYear(y){activateYear(y);save();renderAll();toast('Año '+data.currentYear);}
@@ -433,27 +451,33 @@ function monthIncome(m){return colSum(data.income,m);}
 function monthExpense(m){return colSum(data.fixed,m)+colSum(data.variable,m)+colSum(data.debts,m);}
 function monthLiquidity(m){return monthIncome(m)-monthExpense(m);}
 // quincenal allocation: q=0 -> Q1, q=1 -> Q2
-function qShare(r,m,q){const v=+r.vals[m]||0;const f=r.freq||'Q1';if(f==='AMBAS')return v/2;if(f==='Q1')return q===0?v:0;if(f==='Q2')return q===1?v:0;return q===0?v:0;}
+function qShare(r,m,q){const v=+r.vals[m]||0;const f=(r.freqs&&r.freqs[m])||r.freq||'Q1';if(f==='AMBAS')return v/2;if(f==='Q1')return q===0?v:0;if(f==='Q2')return q===1?v:0;return q===0?v:0;}
 function qSum(arr,m,q){return arr.reduce((s,r)=>s+qShare(r,m,q),0);}
 function qIncome(m,q){return qSum(data.income,m,q);}
 function qExpense(m,q){return qSum(data.fixed,m,q)+qSum(data.variable,m,q)+qSum(data.debts,m,q);}
 // ===== FLUJO TABLE =====
+var flowView='all';
+function monthsView(){return flowView==='all'?[0,1,2,3,4,5,6,7,8,9,10,11]:[+flowView];}
+function renderFlowSel(){const s=document.getElementById('flowMonthSel');if(!s)return;let o='<option value="all"'+(flowView==='all'?' selected':'')+'>Todos los meses</option>';o+=MONTHS.map((m,i)=>'<option value="'+i+'"'+(String(flowView)===String(i)?' selected':'')+'>'+m+'</option>').join('');s.innerHTML=o;}
+function setFlowView(v){flowView=(v==='all'?'all':+v);renderFlowSel();renderFlow();}
 function renderFlow(){
+ const ms=monthsView();const nCols=ms.length+3;
  const head=document.getElementById('flowHead');
- head.innerHTML='<th>Concepto</th><th>Frecuencia</th><th>Cuenta</th>'+MONTHS.map(m=>'<th>'+m.slice(0,3)+'</th>').join('')+'<th>Total año</th><th></th>';
+ head.innerHTML='<th>Concepto</th>'+ms.map(m=>'<th>'+MONTHS[m].slice(0,3)+'</th>').join('')+'<th>Total año</th><th></th>';
  const body=document.getElementById('flowBody');
  let html='';
- const section=(t)=>{html+='<tr class="section"><td colspan="17">'+t+'</td></tr>';};
+ const section=(t)=>{html+='<tr class="section"><td colspan="'+nCols+'">'+t+'</td></tr>';};
  const dataRow=(arr,i)=>{const r=arr[i];
   let c='<tr><td><input class="name" value="'+esc(r.name)+'" onchange="upd(\''+arr._k+'\','+i+',\'name\',this.value)"></td>';
-  c+='<td><select onchange="upd(\''+arr._k+'\','+i+',\'freq\',this.value)">'+['Q1','Q2','AMBAS'].map(f=>'<option value="'+f+'"'+(f===(r.freq||'Q1')?' selected':'')+'>'+FREQLBL[f]+'</option>').join('')+'</select></td>';
-  c+='<td><select onchange="upd(\''+arr._k+'\','+i+',\'account\',this.value)">'+ACCS().map(a=>'<option'+(a===r.account?' selected':'')+'>'+a+'</option>').join('')+'</select></td>';
-  for(let m=0;m<12;m++){c+='<td><input type="number" value="'+(r.vals[m]||0)+'" onchange="upd(\''+arr._k+'\','+i+','+m+',this.value)"></td>';}
+  ms.forEach(m=>{const fq=(r.freqs&&r.freqs[m])||r.freq||'Q1';const ac=(r.accts&&r.accts[m])||r.account||'BANCOLOMBIA';
+   c+='<td class="mcell"><input type="number" class="mval" value="'+(r.vals[m]||0)+'" onchange="upd(\''+arr._k+'\','+i+','+m+',this.value)">';
+   c+='<select class="msel" title="Frecuencia" onchange="updM(\''+arr._k+'\','+i+',\'freq\','+m+',this.value)">'+['Q1','Q2','AMBAS'].map(f=>'<option value="'+f+'"'+(f===fq?' selected':'')+'>'+FREQLBL[f]+'</option>').join('')+'</select>';
+   c+='<select class="msel" title="Cuenta" onchange="updM(\''+arr._k+'\','+i+',\'account\','+m+',this.value)">'+ACCS().map(a=>'<option'+(a===ac?' selected':'')+'>'+a+'</option>').join('')+'</select></td>';});
   c+='<td><b>'+fmt(rowYear(r))+'</b></td>';
   c+='<td style="position:sticky;right:0"><button class="btn red sm" onclick="delRow(\''+arr._k+'\','+i+')">✕</button></td></tr>';
   html+=c;};
- const subtotal=(label,arr)=>{let c='<tr class="subtotal"><td>'+label+'</td><td></td><td></td>';let yr=0;for(let m=0;m<12;m++){const s=colSum(arr,m);yr+=s;c+='<td>'+fmt(s)+'</td>';}c+='<td>'+fmt(yr)+'</td><td></td></tr>';html+=c;};
- const grand=(label,fn,neg)=>{let c='<tr class="total'+(neg?' neg-row':'')+'"><td>'+label+'</td><td></td><td></td>';let yr=0;for(let m=0;m<12;m++){const s=fn(m);yr+=s;c+='<td>'+fmt(s)+'</td>';}c+='<td>'+fmt(yr)+'</td><td></td></tr>';html+=c;};
+ const subtotal=(label,arr)=>{let c='<tr class="subtotal"><td>'+label+'</td>';let yr=0;for(let m=0;m<12;m++)yr+=colSum(arr,m);ms.forEach(m=>{c+='<td>'+fmt(colSum(arr,m))+'</td>';});c+='<td>'+fmt(yr)+'</td><td></td></tr>';html+=c;};
+ const grand=(label,fn,neg)=>{let c='<tr class="total'+(neg?' neg-row':'')+'"><td>'+label+'</td>';let yr=0;for(let m=0;m<12;m++)yr+=fn(m);ms.forEach(m=>{c+='<td>'+fmt(fn(m))+'</td>';});c+='<td>'+fmt(yr)+'</td><td></td></tr>';html+=c;};
  data.income._k='income';data.fixed._k='fixed';data.variable._k='variable';data.debts._k='debts';
  section('A) Ingresos');data.income.forEach((r,i)=>dataRow(data.income,i));grand('Gran total ingresos',monthIncome);
  section('B) Gastos fijos');data.fixed.forEach((r,i)=>dataRow(data.fixed,i));subtotal('Subtotal gastos fijos',data.fixed);
@@ -462,9 +486,11 @@ function renderFlow(){
  grand('Egresos totales',monthExpense,true);
  grand('Liquidez mensual',monthLiquidity);
  body.innerHTML=html;
+ renderFlowSel();
 }
 function esc(s){return String(s).replace(/"/g,'&quot;').replace(/</g,'&lt;');}
 function upd(k,i,field,val){const r=data[k][i];if(field==='name')r.name=val;else if(field==='account')r.account=val;else if(field==='freq')r.freq=val;else r.vals[field]=parseFloat(val)||0;save();refreshTotalsOnly();}
+function updM(k,i,field,m,val){const r=data[k][i];if(!Array.isArray(r.freqs))r.freqs=[];if(!Array.isArray(r.accts))r.accts=[];if(field==='freq'){r.freqs[m]=val;r.freq=val;}else{r.accts[m]=val;r.account=val;}save();refreshTotalsOnly();}
 function refreshTotalsOnly(){renderFlow();}
 function delRow(k,i){data[k].splice(i,1);save();renderFlow();}
 function addRow(k,defAcc){data[k].push(row('Nuevo concepto',defAcc,0,k==='income'?'AMBAS':'Q1'));save();renderFlow();}
@@ -602,7 +628,7 @@ function drawCharts(m){
  let acum=0;const acumArr=MONTHS.map((_,i)=>{acum+=monthLiquidity(i);return acum;});
  mk('chLine','line',{labels:MONTHS.map(x=>x.slice(0,3)),datasets:[{label:'Liquidez acumulada',data:acumArr,borderColor:'#38bdf8',backgroundColor:'rgba(56,189,248,.15)',fill:true,tension:.3}]},{});
  const byAcc={};ACCS().forEach(a=>byAcc[a]=0);
- [...data.fixed,...data.variable,...data.debts].forEach(r=>{byAcc[r.account]=(byAcc[r.account]||0)+(+r.vals[m]||0);});
+ [...data.fixed,...data.variable,...data.debts].forEach(r=>{const ac=(r.accts&&r.accts[m])||r.account;byAcc[ac]=(byAcc[ac]||0)+(+r.vals[m]||0);});
  const accL=ACCS();
  mk('chFund','bar',{labels:accL,datasets:[{label:'Gasto',data:accL.map(a=>byAcc[a]),backgroundColor:['#7dd3fc','#d8b4fe','#6ee7b7','#fde68a','#fca5a5','#93c5fd']}]},{indexAxis:'y'});
 }
@@ -762,7 +788,7 @@ function exportXlsx(){
   activateYear(y);
   const aoa=[['AÑO '+y],['MES','Cuenta',...MONTHS,'Total año']];
   const push=(title)=>aoa.push([title]);
-  const rows=(arr)=>arr.forEach(r=>aoa.push([r.name,r.account,...r.vals.map(v=>+v||0),rowYear(r)]));
+  const rows=(arr)=>arr.forEach(r=>aoa.push([r.name,(r.accts&&r.accts[0])||r.account,...r.vals.map(v=>+v||0),rowYear(r)]));
   push('A) INGRESOS');rows(data.income);
   aoa.push(['Gran total ingresos','',...MONTHS.map((_,m)=>monthIncome(m)),data.income.reduce((s,r)=>s+rowYear(r),0)]);
   push('B) GASTOS FIJOS');rows(data.fixed);
@@ -801,16 +827,46 @@ function exportXlsx(){
 function exportJson(){const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='respaldo_flujo_caja.json';a.click();}
 function importJson(file){const rd=new FileReader();rd.onload=e=>{try{data=JSON.parse(e.target.result);normalizeData();save();renderAll();toast('Respaldo importado ✓');}catch(x){alert('Archivo inválido');}};rd.readAsText(file);}
 function saveDataUrl(){data.meta.dataUrl=(document.getElementById('cfgDataUrl').value||'').trim();save();toast('Enlace guardado ✓');}
+function savePushUrl(){data.meta.pushUrl=(document.getElementById('cfgPushUrl').value||'').trim();data.meta.autoPush=!!(document.getElementById('cfgAutoPush')&&document.getElementById('cfgAutoPush').checked);save();toast('Endpoint guardado ✓');}
+var pushT=null,pushBusy=false;
+function schedulePush(){if(!data||!data.meta||!data.meta.autoPush||!data.meta.pushUrl)return;clearTimeout(pushT);pushT=setTimeout(()=>pushDataUrl(true),1600);}
+function pushDataUrl(silent){
+ const u=(data.meta&&data.meta.pushUrl)||'';
+ if(!u){if(!silent)alert('Primero guarda un endpoint que reciba los datos (webhook / Apps Script).');return;}
+ if(pushBusy)return;pushBusy=true;if(!silent)toast('Enviando a la nube…');
+ const payload=JSON.stringify({app:'FlujoCajaJDMD',savedAt:new Date().toISOString(),data:data});
+ fetch(u,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:payload}).then(r=>{
+  pushBusy=false;toast('Información enviada a la nube ✓');
+ }).catch(()=>{
+  pushBusy=false;
+  // Reintento en modo no-cors (respuesta opaca, pero la mayoría de endpoints Apps Script sí reciben el dato)
+  fetch(u,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain;charset=utf-8'},body:payload}).then(()=>{toast('Datos enviados (sin confirmación del servidor)');}).catch(()=>{if(!silent)alert('No se pudo enviar al endpoint. Verifica que la URL acepte POST (por ejemplo una Google Apps Script Web App publicada como “cualquiera puede acceder”).');});
+ });
+}
 function openDataUrl(){const u=(document.getElementById('cfgDataUrl').value||'').trim();if(!u){alert('Primero ingresa un enlace.');return;}window.open(u,'_blank','noopener');}
+function tryRestoreJson(txt){
+ if(!txt)return false;const s=txt.trim();if(s[0]!=='{'&&s[0]!=='[')return false;
+ let obj;try{obj=JSON.parse(s);}catch(e){return false;}
+ const d=(obj&&obj.data&&typeof obj.data==='object')?obj.data:obj;
+ if(!d||typeof d!=='object'||(!d.store&&!Array.isArray(d.income)))return false;
+ const url=data.meta&&data.meta.dataUrl,push=data.meta&&data.meta.pushUrl,auto=data.meta&&data.meta.autoPush;
+ data=d;normalizeData();
+ if(!data.meta.dataUrl)data.meta.dataUrl=url||'';if(!data.meta.pushUrl)data.meta.pushUrl=push||'';if(data.meta.autoPush==null)data.meta.autoPush=!!auto;
+ save();return true;
+}
 function syncDataUrl(){
  const u=(document.getElementById('cfgDataUrl').value||'').trim();
  if(!u){alert('Primero ingresa un enlace.');return;}
  data.meta.dataUrl=u;save();toast('Sincronizando…');
  fetch(u).then(r=>{if(!r.ok)throw new Error('http');return r.arrayBuffer();}).then(buf=>{
+  // Intento 1: respaldo JSON completo (recupera todos los años, meses, frecuencia y cuenta)
+  let txt='';try{txt=new TextDecoder('utf-8').decode(new Uint8Array(buf));}catch(e){txt='';}
+  if(tryRestoreJson(txt)){renderAll();toast('Respaldo completo restaurado ✓ (años, meses, frecuencia y cuenta)');return;}
+  // Intento 2: tabla Excel/CSV → solo el año activo
   const wb=XLSX.read(new Uint8Array(buf),{type:'array'});const ws=wb.Sheets[wb.SheetNames[0]];const aoa=XLSX.utils.sheet_to_json(ws,{header:1});
   if(!aoa||!aoa.length)throw new Error('empty');
   parseImport(aoa);save();renderAll();toast('Datos del año '+data.currentYear+' sincronizados ✓');
- }).catch(()=>{alert('No se pudo leer el enlace automáticamente. Verifica que sea público (Google Sheets publicado como CSV, o un Excel/CSV accesible). Si el sitio bloquea el acceso (CORS), descarga el archivo y usa “Importar Excel”.');});
+ }).catch(()=>{alert('No se pudo leer el enlace automáticamente. Verifica que sea público (Google Sheets publicado como CSV, tu Apps Script /exec, o un Excel/CSV accesible). Si el sitio bloquea el acceso (CORS), descarga el archivo y usa “Importar Excel”.');});
 }
 function importXlsx(file){const rd=new FileReader();rd.onload=e=>{try{const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});const ws=wb.Sheets[wb.SheetNames[0]];const aoa=XLSX.utils.sheet_to_json(ws,{header:1});parseImport(aoa);save();renderAll();toast('Excel importado ✓');}catch(x){alert('No se pudo leer el Excel');}};rd.readAsArrayBuffer(file);}
 function parseImport(aoa){
@@ -825,6 +881,7 @@ function parseImport(aoa){
  if(nd.income.length||nd.fixed.length){
   // Reemplaza solo el año activo, conservando el resto de años, préstamos y configuración
   data.store[data.currentYear]={income:nd.income,fixed:nd.fixed,variable:nd.variable,debts:nd.debts};
+  normRows(data.store[data.currentYear]);
   activateYear(data.currentYear);
  }
 }
@@ -832,7 +889,7 @@ function parseImport(aoa){
 let toastT;
 function toast(msg){const t=document.getElementById('toast');t.textContent=msg||'Guardado ✓';t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),1600);}
 function fillMonthSel(){const s=document.getElementById('dashMonth');s.innerHTML=MONTHS.map((m,i)=>'<option value="'+i+'">'+m+'</option>').join('');}
-function ensureShape(){['income','fixed','variable','debts'].forEach(k=>{(data[k]||[]).forEach(r=>{if(!r.freq)r.freq=(k==='income'?'AMBAS':'Q1');if(!Array.isArray(r.vals))r.vals=z();while(r.vals.length<12)r.vals.push(0);});});}
+function ensureShape(){['income','fixed','variable','debts'].forEach(k=>{(data[k]||[]).forEach(r=>{if(!r.freq)r.freq=(k==='income'?'AMBAS':'Q1');if(!Array.isArray(r.vals))r.vals=z();while(r.vals.length<12)r.vals.push(0);ensRowArr(r,k);});});}
 function renderAll(){ensureShape();renderYearSel();renderFlow();renderDashboard();}
 function switchTab(id){
  document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===id));
@@ -936,6 +993,11 @@ function init(){
  document.getElementById('saveDataUrl').onclick=saveDataUrl;
  document.getElementById('openDataUrl').onclick=openDataUrl;
  document.getElementById('syncDataUrl').onclick=syncDataUrl;
+ document.getElementById('cfgPushUrl').value=data.meta.pushUrl||'';
+ document.getElementById('cfgAutoPush').checked=!!data.meta.autoPush;
+ document.getElementById('savePushUrl').onclick=savePushUrl;
+ document.getElementById('pushDataUrl').onclick=()=>pushDataUrl(false);
+ document.getElementById('cfgAutoPush').onchange=function(){data.meta.autoPush=this.checked;save();toast(this.checked?'Envío automático activado ✓':'Envío automático desactivado');};
  document.getElementById('resetData').onclick=()=>{if(confirm('¿Restablecer todos los datos a los valores originales?')){data=defaultData();normalizeData();save();renderAll();toast('Datos restablecidos');}};
  document.getElementById('cfgSaveGoals').onclick=saveGoals;
  document.getElementById('cfgSaveCurr').onclick=saveCurr;
@@ -954,4 +1016,3 @@ save=function(){_origSave();clearTimeout(_st);_st=setTimeout(()=>toast(),400);};
 document.addEventListener('DOMContentLoaded',init);
 </script>
 </body>
-</html>
