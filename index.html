@@ -70,6 +70,7 @@
       <div class="field"><input id="gatePw" type="password" placeholder="Contraseña" /></div>
       <div class="field hidden" id="gatePwWrap"><input id="gatePw2" type="password" placeholder="Repite la contraseña" /></div>
       <button id="gateBtn" class="btn" style="width:100%">Entrar</button>
+      <button id="resetPwBtn" class="btn secondary" style="width:100%;margin-top:10px;">Olvidé la contraseña</button>
       <p class="tiny" id="gateNote" style="text-align:center;margin-top:14px;">La app guarda la información localmente y no sale del navegador.</p>
     </div>
   </div>
@@ -522,6 +523,22 @@
       return (h1 >>> 0).toString(16).padStart(8, '0') + (h2 >>> 0).toString(16).padStart(8, '0');
     }
 
+    function setPasswordValue(value) {
+      try {
+        localStorage.setItem(PASS_KEY, sha256(value));
+      } catch (e) {
+        console.warn('No se pudo guardar la contraseña', e);
+      }
+    }
+
+    function clearPasswordValue() {
+      try {
+        localStorage.removeItem(PASS_KEY);
+      } catch (e) {
+        console.warn('No se pudo borrar la contraseña', e);
+      }
+    }
+
     function gateGo() {
       const hasPass = !!localStorage.getItem(PASS_KEY);
       const pw = document.getElementById('gatePw').value;
@@ -530,13 +547,31 @@
       if (!hasPass) {
         if (pw.length < 4) { err.textContent = 'Mínimo 4 caracteres'; return; }
         if (pw !== pw2) { err.textContent = 'Las contraseñas no coinciden'; return; }
-        localStorage.setItem(PASS_KEY, sha256(pw));
+        setPasswordValue(pw);
       }
-      if (sha256(pw) !== localStorage.getItem(PASS_KEY)) {
+      const stored = String(localStorage.getItem(PASS_KEY) || '');
+      if (!stored || sha256(pw) !== stored) {
         err.textContent = 'Contraseña incorrecta'; return;
       }
       document.getElementById('gate').classList.add('hidden');
       document.getElementById('app').classList.remove('hidden');
+    }
+
+    function resetPasswordFlow() {
+      const err = document.getElementById('gateErr');
+      const current = document.getElementById('gatePw').value;
+      if (!current || current.length < 4) {
+        err.textContent = 'Escribe la contraseña actual o una nueva con al menos 4 caracteres.';
+        return;
+      }
+      clearPasswordValue();
+      document.getElementById('gatePw').value = '';
+      document.getElementById('gatePw2').value = '';
+      document.getElementById('gatePwWrap').classList.remove('hidden');
+      document.getElementById('gateTitle').textContent = 'Crear contraseña';
+      document.getElementById('gateSub').textContent = 'Define una nueva contraseña';
+      document.getElementById('gateBtn').textContent = 'Crear contraseña';
+      err.textContent = 'Contraseña borrada. Define una nueva para continuar.';
     }
 
     function handleGate() {
@@ -568,6 +603,7 @@
       renderDashboard();
 
       document.getElementById('gateBtn').onclick = gateGo;
+      document.getElementById('resetPwBtn').onclick = resetPasswordFlow;
       document.getElementById('logoutBtn').onclick = logout;
       document.getElementById('selYear').onchange = (e) => switchYear(e.target.value);
       document.getElementById('addYear').onclick = addYear;
