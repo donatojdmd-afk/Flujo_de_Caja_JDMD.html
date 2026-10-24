@@ -6,3 +6,8 @@
   Strict-Transport-Security: max-age=31536000; includeSubDomains
   X-Robots-Tag: noindex, nofollow
   Cache-Control: no-cache
+/sw.js
+  Cache-Control: no-cache, no-store
+  Service-Worker-Allowed: /
+/manifest.webmanifest
+  Content-Type: application/manifest+json
